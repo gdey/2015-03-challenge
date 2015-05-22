@@ -4,9 +4,12 @@ import (
 	"bufio"
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"os"
 	"strconv"
+
+	"github.com/jroimartin/gocui"
 )
 
 const (
@@ -37,6 +40,8 @@ var (
 
 	playerScore int
 )
+
+var inputText string
 
 func init() {
 	for i, _ := range grid {
@@ -243,26 +248,46 @@ func haveYouWon() bool {
 	return true
 }
 
-func playGame() {
+func playGame(g *gocui.Gui) {
+	/*
+		iv, err := g.View("input")
+		if err != nil {
+			log.Panicln("input", err)
+		}
+	*/
+	ov, err := g.View("output")
+	if err != nil {
+		if err != gocui.ErrorUnkView {
+			return
+		}
+		log.Panicln("output", err)
+	}
 	for i := 0; i < 6; i++ {
-		takeTurn()
+		/*
+			takeTurn()
+			if haveYouWon() {
+				win()
+				return
+			}
+		*/
+		//		fmt.Fprintf(iv, "After turn %d, your score is %d\n", i+1, playerScore)
+		ov.Clear()
+		fmt.Fprintln(ov, "Hello World")
+		//printBoardAndCheat(ov)
+		g.Flush()
+	}
+	/*
 		if haveYouWon() {
 			win()
 			return
+		} else {
+			lose()
+			return
 		}
-		fmt.Printf("After turn %d, your score is %d\n", i+1, playerScore)
-		printBoardAndCheat()
-	}
-
-	if haveYouWon() {
-		win()
-		return
-	} else {
-		lose()
-		return
-	}
+	*/
 }
 
+/*
 func printBoard() {
 	for i, row := range grid {
 		for j, cell := range row {
@@ -277,39 +302,125 @@ func printBoard() {
 		fmt.Println()
 	}
 }
-
-func printBoardAndCheat() {
+*/
+func printBoardAndCheat(outputView *gocui.View) {
+	const ship rune = 's'
+	const blank rune = 'b'
+	const hitShip rune = 'h'
 	for i, row := range grid {
 		for j, cell := range row {
-			var c string
+			var c rune
 			switch {
 			case cell.BeenHit:
-				c = "X"
+				c = hitShip
 			case cell.HasShip:
-				c = "B"
+				c = ship
 			default:
-				c = fmt.Sprintf("%d,%d", i, j)
+				//TODO: Do this right
+				c = blank
 			}
-			fmt.Printf("%v\t", c)
+			outputView.SetCursor(i, j)
+			outputView.EditWrite(c)
 		}
-		fmt.Println()
 	}
 }
 
 func main() {
-	placeShips()
-	for i, row := range grid {
-		for j, cell := range row {
-			var c string
-			if cell.ShipType != "" {
-				c = fmt.Sprintf("X")
-			} else {
-				c = fmt.Sprintf("%d,%d", i, j)
+	/*
+		placeShips()
+		for i, row := range grid {
+			for j, cell := range row {
+				var c string
+				if cell.ShipType != "" {
+					c = fmt.Sprintf("X")
+				} else {
+					c = fmt.Sprintf("%d,%d", i, j)
+				}
+				fmt.Printf("%v ", c)
 			}
-			fmt.Printf("%v\t", c)
+			fmt.Printf("\n")
 		}
-		fmt.Printf("\n")
+	*/
+	g := gocui.NewGui()
+	if err := g.Init(); err != nil {
+		log.Panicln(err)
+	}
+	defer g.Close()
+	g.SetLayout(layout)
+	inputText = "Enter the x coord: "
+
+	if err := initKeybindings(g); err != nil {
+		log.Panicln(err)
+	}
+	g.SetCurrentView("input")
+
+	if err := g.MainLoop(); err != nil && err != gocui.Quit {
+		log.Panicln(err)
 	}
 
-	playGame()
+}
+func initKeybindings(g *gocui.Gui) error {
+	if err := g.SetKeybinding("", gocui.KeyCtrlC, gocui.ModNone, quit); err != nil {
+		log.Panicln(err)
+		return err
+	}
+
+	for _, a := range []rune("1234567890,") {
+		fmt.Println(a)
+		aa := a
+		if err := g.SetKeybinding("", a, gocui.ModNone, func(g *gocui.Gui, v *gocui.View) error {
+			iv, _ := g.View("input")
+			iv.SetCursor(len(inputText), 0)
+			inputText += string(a)
+			iv.EditWrite(aa)
+			ov, _ := g.View("output")
+			ov.EditWrite('F')
+
+			return nil
+		}); err != nil {
+			log.Panicln(a, err)
+			return err
+		}
+
+	}
+
+	/*
+		if err := g.SetKeybinding("stdin", gocui.KeyArrowUp, gocui.ModNone,
+			func(g *gocui.Gui, v *gocui.View) error {
+				scrollView(v, -1)
+				return nil
+			}); err != nil {
+			return err
+		}
+			if err := g.SetKeybinding("stdin", gocui.KeyArrowDown, gocui.ModNone,
+				func(g *gocui.Gui, v *gocui.View) error {
+					scrollView(v, 1)
+					return nil
+				}); err != nil {
+				return err
+			}
+	*/
+	return nil
+}
+func layout(g *gocui.Gui) error {
+	maxX, maxY := g.Size()
+
+	if v, err := g.SetView("output", 0, 0, maxX-1, maxY-20); err != nil {
+		if err != gocui.ErrorUnkView {
+			return err
+		}
+		printBoardAndCheat(v)
+	}
+	if v, err := g.SetView("input", 0, maxY-20, maxX-1, maxY); err != nil {
+		if err != gocui.ErrorUnkView {
+			return err
+		}
+		fmt.Fprintln(v, inputText)
+	}
+	g.ShowCursor = true
+
+	return nil
+}
+func quit(g *gocui.Gui, v *gocui.View) error {
+	return gocui.Quit
 }
